@@ -34,7 +34,7 @@ function IsMetatileIdLayerEmpty(metatileId, layer) {
     const lastTile = firstTile + NUM_TILES_IN_LAYER - 1;
     let tiles = map.getMetatileTiles(metatileId, firstTile, lastTile);
 
-    for (let i = 0; i < 4; i++)
+    for (let i = 0; i < NUM_TILES_IN_LAYER; i++)
         if (tiles[i].tileId != BLANK_TILE_ID)
             return false;
     return true;
@@ -173,7 +173,7 @@ function ShouldTryMerging(prevBlock, newBlock)
 
         // If the potential new tiles exist, we should still try to merge.
         if (doPotentialNewTilesExist)
-            return (!invalidBlocks) && (!isNewACompleteBlock);
+            return (!invalidBlocks) && (!isNewACompleteBlock) && (!isNextNotTop);
     } 
 
     return (!sameBlock) && (!nullBlock) && (!isPrevNotBottom) && (!isNextNotTop) && (!isOverlapImpossible);
