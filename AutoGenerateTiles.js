@@ -1,3 +1,7 @@
+// Config to check if the new metatile's top layer overlapped with the previous metatile's bottom layer
+// is equal to the previous metatile.
+const CHECK_FOR_TEMPLATE_OVERLAP = true;
+
 // 'Blank' constants, usually you wouldn't want to change them.
 const BLANK_METATILE_ID = 0;
 const BLANK_TILE_ID = 0;
@@ -25,12 +29,12 @@ let gCoreMetatileIds = []; // Metatile Ids used to construct new ones, those wil
 // Gets if a layer is empty or not for a block,
 // this is useful if we want to check if we should make the
 // specified drawn block a new block or not.
-function IsBlockLayerEmpty(metatileId, layer) {
+function IsMetatileIdLayerEmpty(metatileId, layer) {
     const firstTile = layer * NUM_TILES_IN_LAYER;
     const lastTile = firstTile + NUM_TILES_IN_LAYER - 1;
     let tiles = map.getMetatileTiles(metatileId, firstTile, lastTile);
 
-    for (let i = 0; i < tiles.length; i++)
+    for (let i = 0; i < 4; i++)
         if (tiles[i].tileId != BLANK_TILE_ID)
             return false;
     return true;
@@ -45,12 +49,20 @@ function GetTilesAtLayer(metatileId, layer) {
     return tiles;
 }
 
-// Merges two dual layer blocks into one.
-function MergeBlocksAndReturnId(bottomBlock, topBlock) {
+// Merges a block's bottom layer with another's top layer.
+function MergeTwoBlocksIntoTiles(bottomBlock, topBlock)
+{
     let bottomTiles = GetTilesAtLayer(bottomBlock.metatileId, DUAL_BOTTOM_LAYER);
     let topTiles = GetTilesAtLayer(topBlock.metatileId, DUAL_TOP_LAYER);
-    let newTiles = bottomTiles.concat(topTiles); // Basically, appends the tiles in topTiles to the ones in bottomTiles.
-    let correctMetatileId = FindTilesInTileset(newTiles); // If the tiles actually exist, we don't need to create them again.
+    let mergedTiles = bottomTiles.concat(topTiles); // Basically, appends the tiles in topTiles to the ones in bottomTiles.
+
+    return mergedTiles;
+}
+
+// Merges two dual layer blocks into one.
+function MergeBlocksAndReturnId(bottomBlock, topBlock) {
+    let mergedTiles = MergeTwoBlocksIntoTiles(bottomBlock, topBlock);
+    let correctMetatileId = FindTilesInTileset(mergedTiles); // If the tiles actually exist, we don't need to create them again.
 
     if (correctMetatileId == -1) {
         let destMetatileId = GetNextFreeMetatileId();
@@ -59,7 +71,7 @@ function MergeBlocksAndReturnId(bottomBlock, topBlock) {
         if (destMetatileId == -1)
             return -1;
 
-        map.setMetatileTiles(destMetatileId, newTiles, 0, 7, false);
+        map.setMetatileTiles(destMetatileId, mergedTiles, 0, 7, false);
         return destMetatileId;
     }
 
@@ -98,14 +110,14 @@ function GetFreeMetatilesIds() {
     // Also, we do it in reverse because we pop() when finding the next
     // free metatile, which returns the last element.
     for (let i = gMaxMetatiles - 1; i > START_FREE_METATILE_SEARCH; i--)
-        if (IsBlockEmpty(i))
+        if (IsMetatileIdEmpty(i))
             gFreeMetatilesIds.push(i);
 }
 
 // Gets if the specified block, i.e.
 // metatile, is empty.
-function IsBlockEmpty(metatileId) {
-    return IsBlockLayerEmpty(metatileId, DUAL_BOTTOM_LAYER) && IsBlockLayerEmpty(metatileId, DUAL_TOP_LAYER);
+function IsMetatileIdEmpty(metatileId) {
+    return IsMetatileIdLayerEmpty(metatileId, DUAL_BOTTOM_LAYER) && IsMetatileIdLayerEmpty(metatileId, DUAL_TOP_LAYER);
 }
 
 // Finds the next free metatile.
@@ -145,13 +157,36 @@ function GetUnusedTiles() {
     return unusedIds;
 }
 
+// Checks if we're supposed to try merging at all.
+function ShouldTryMerging(prevBlock, newBlock)
+{
+    let sameBlock = prevBlock.metatileId == newBlock.metatileId;
+    let nullBlock = (prevBlock.metatileId == BLANK_METATILE_ID) || (newBlock.metatileId == BLANK_METATILE_ID);
+    let isPrevNotBottom = IsMetatileIdLayerEmpty(prevBlock.metatileId, DUAL_BOTTOM_LAYER);
+    let isNextNotTop = IsMetatileIdLayerEmpty(newBlock.metatileId, DUAL_TOP_LAYER);
+    let isOverlapImpossible = (!IsMetatileIdLayerEmpty(prevBlock.metatileId, DUAL_TOP_LAYER)) || (!IsMetatileIdLayerEmpty(newBlock.metatileId, DUAL_BOTTOM_LAYER));
+    
+    if (CHECK_FOR_TEMPLATE_OVERLAP) {
+        let doPotentialNewTilesExist = FindTilesInTileset(MergeTwoBlocksIntoTiles(prevBlock, newBlock)) == prevBlock.metatileId;
+        let invalidBlocks = sameBlock || nullBlock;
+        let isNewACompleteBlock = !IsMetatileIdLayerEmpty(newBlock.metatileId, DUAL_BOTTOM_LAYER) && !IsMetatileIdLayerEmpty(newBlock.metatileId, DUAL_TOP_LAYER);
+
+        // If the potential new tiles exist, we should still try to merge.
+        if (doPotentialNewTilesExist)
+            return (!invalidBlocks) && (!isNewACompleteBlock);
+    } 
+
+    return (!sameBlock) && (!nullBlock) && (!isPrevNotBottom) && (!isNextNotTop) && (!isOverlapImpossible);
+}
+
 // Called when a block is changed on the map. For example, this is called when a user paints a new tile or changes the collision property of a block.
 export function onBlockChanged(x, y, prevBlock, newBlock) {
-    if (!IsBlockLayerEmpty(prevBlock, DUAL_BOTTOM_LAYER) || !IsBlockLayerEmpty(newBlock, DUAL_TOP_LAYER) || // The need to be "overlap"-able.
-        prevBlock.metatileId == BLANK_METATILE_ID || newBlock.metatileId == BLANK_METATILE_ID || // If the user is just adding/replacing blank tiles, there's no point.
-        prevBlock.metatileId == newBlock.metatileId) {
+    if (!ShouldTryMerging(prevBlock, newBlock))
+    {
+        map.setBlock(x, y, newBlock.metatileId, newBlock.collision, newBlock.elevation);
         return;
     }
+    
     // correctMetatileId will be the new metatileId replacing the current block.
     let correctMetatileId = MergeBlocksAndReturnId(prevBlock, newBlock);
 
